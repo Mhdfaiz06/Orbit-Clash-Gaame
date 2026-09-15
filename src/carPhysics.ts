@@ -1,4 +1,4 @@
-import { Player, Particle, SkidMark, DamagePopup, GearConfig, Vector } from './types';
+import { Player, Particle, SkidMark, DamagePopup, GearConfig, Vector, JetSmokePuff } from './types';
 
 export const CANVAS_WIDTH = 1200;
 export const CANVAS_HEIGHT = 800;
@@ -7,57 +7,59 @@ export const INITIAL_HEALTH = 100;
 
 /**
  * Display speed multiplier: Keeps dashboard speedometer numbers authentic (0-18 km/h scale)
- * while physical velocity is calibrated to user requirements (13s to cross arena in G1).
+ * while physical traveling velocity is fast and responsive (~5s in G1 to cross 1200px arena).
  */
-export const DISPLAY_SPEED_MULTIPLIER = 3.02;
+export const DISPLAY_SPEED_MULTIPLIER = 1.60;
 
 export const GEAR_CONFIG: GearConfig[] = [
-  // G1: 1200px / (13 sec * 60 fps) = 1.5385 px/frame (takes exactly 13s full throttle across arena)
-  { gear: 1, maxSpeed: 1.5385, accel: 0.055, minLaunchSpeed: 0.0, label: '1ST' },
-  // G2: Controlled cruising speed (~7.4s across)
-  { gear: 2, maxSpeed: 2.70,   accel: 0.046, minLaunchSpeed: 0.5, label: '2ND' },
-  // G3: Ideal combat maneuver & ramming speed (~5.1s across)
-  { gear: 3, maxSpeed: 3.90,   accel: 0.038, minLaunchSpeed: 1.2, label: '3RD' },
-  // G4: Top speed that the eye can track and control (~3.8s across)
-  { gear: 4, maxSpeed: 5.30,   accel: 0.030, minLaunchSpeed: 2.0, label: '4TH' },
+  // G1: 2.2 px/frame (gentle, controlled starting crawl; speedometer ~3.5 km/h)
+  { gear: 1, maxSpeed: 2.2,  accel: 0.085, minLaunchSpeed: 0.0, label: '1ST' },
+  // G2: 4.2 px/frame (smooth mid-pace cruising; speedometer ~6.7 km/h)
+  { gear: 2, maxSpeed: 4.2,  accel: 0.070, minLaunchSpeed: 1.2, label: '2ND' },
+  // G3: 6.8 px/frame (dynamic racing velocity; speedometer ~10.9 km/h)
+  { gear: 3, maxSpeed: 6.8,  accel: 0.055, minLaunchSpeed: 2.6, label: '3RD' },
+  // G4: 9.8 px/frame (high-velocity overdrive; speedometer ~15.7 km/h)
+  { gear: 4, maxSpeed: 9.8,  accel: 0.045, minLaunchSpeed: 4.6, label: '4TH' },
 ];
 
 /**
- * Updates car driving physics, steering, traction, and tire skidmarks
+ * Updates spacecraft / car driving physics:
+ * - In rest mode: behaves under zero-gravity float (conservation of momentum, frictionless glide, hovering levitation).
+ * - During braking: immediately reduces throttle to zero, while zero-gravity inertia continues carrying the vessel as retro-thrusters decelerate it.
+ * - Spaceship in space motion: Newtonian vector thrust, RCS attitude steering at any speed, and zero-gravity inertial drifting.
+ * - Dual exhaust jet smoke trace: continuous grey smoke emitted from twin exhausts, expanding and getting cloudier as it is traced further back.
  */
 export function updateCarDriving(
   p: Player,
   particles: Particle[],
-  skidMarks: SkidMark[]
+  skidMarks: SkidMark[],
+  jetSmoke: JetSmokePuff[]
 ) {
   const currentSpeed = Math.hypot(p.vel.x, p.vel.y);
   const gearCfg = GEAR_CONFIG[p.gear - 1];
 
-  // 1. Heading vectors
+  // 1. Spacecraft Heading Vectors
   const forwardX = Math.cos(p.angle);
   const forwardY = Math.sin(p.angle);
   const rightX = -forwardY;
   const rightY = forwardX;
 
-  // 2. Decompose velocity into forward (longitudinal) and sideways (lateral) components
+  // 2. Decompose velocity into longitudinal (forward) and lateral (drift) components
   let vForward = p.vel.x * forwardX + p.vel.y * forwardY;
   let vLateral = p.vel.x * rightX + p.vel.y * rightY;
 
-  // 3. Stalling Mechanics (Manual Transmission)
-  if (currentSpeed < 0.6) {
-    // At standstill, only Gear 1 can launch
+  // 3. Reactor / Engine Thruster Ignition & Stalling
+  if (currentSpeed < 1.0) {
     p.stalled = p.gear !== 1;
   } else {
-    // While rolling, engine bogs down if speed drops below min launch speed for current gear
     p.stalled = currentSpeed < gearCfg.minLaunchSpeed;
   }
 
-  // 4. Throttle & Acceleration Physics
   let effectiveAccel = gearCfg.accel;
   if (p.stalled) {
-    if (currentSpeed < 0.6) {
+    if (currentSpeed < 1.0) {
       effectiveAccel = 0;
-      // Stutter stall smoke puff
+      // Stutter stall plasma puff
       if (Math.random() < 0.08) {
         particles.push({
           x: p.pos.x - forwardX * p.radius,
@@ -71,107 +73,270 @@ export function updateCarDriving(
         });
       }
     } else {
-      // Bogged down in higher gear: gentle acceleration so driver can recover speed
       effectiveAccel = gearCfg.accel * 0.55;
     }
   }
 
-  // Active Braking / Handbrake
-  if (p.braking) {
-    // Strong brake deceleration
-    vForward *= 0.82;
-    vLateral *= 0.72;
-    if (Math.abs(vForward) < 0.08) vForward = 0;
-    if (Math.abs(vLateral) < 0.08) vLateral = 0;
+  // 4. Spacecraft Steering & RCS Attitude Thrusters with Silky Smooth Damping
+  // In zero-gravity space, attitude thrusters rotate the ship freely with smooth input filtering
+  if (p.smoothSteer === undefined) p.smoothSteer = 0;
+  p.smoothSteer += (p.steering - p.smoothSteer) * 0.24;
 
-    // Brake sparks at wheels
-    if (currentSpeed > 2.0 && Math.random() < 0.35) {
-      particles.push({
-        x: p.pos.x - forwardX * (p.radius * 0.6) + (Math.random() - 0.5) * 10,
-        y: p.pos.y - forwardY * (p.radius * 0.6) + (Math.random() - 0.5) * 10,
-        vx: (Math.random() - 0.5) * 2,
-        vy: (Math.random() - 0.5) * 2,
-        life: 0.4,
-        color: '#ef4444',
-        size: Math.random() * 2 + 1,
-        type: 'spark',
-      });
-    }
-  } else if (Math.abs(p.throttle) > 0.05) {
-    // Forward / Reverse acceleration
-    if (p.throttle > 0) {
-      // Forward drive
-      if (vForward < gearCfg.maxSpeed) {
-        vForward += p.throttle * effectiveAccel;
-      }
-    } else {
-      // Reverse drive (max ~3.2 km/h in 1st gear)
-      const maxRevSpeed = -3.2;
-      if (vForward > maxRevSpeed && p.gear === 1) {
-        vForward += p.throttle * (effectiveAccel * 0.65);
-      }
-    }
-  } else {
-    // Coasting rolling resistance: very slow deceleration to allow smooth gear shifting
-    // Car retains its forward momentum so speed does not plummet while reaching for the shift key
-    vForward *= 0.993;
-    if (Math.abs(vForward) < 0.03) vForward = 0;
-  }
+  // Speed-sensitive steering geometry: slightly tighter at low speed, rock-solid at high speed
+  const speedSteerDamp = Math.max(0.72, 1.0 - (currentSpeed / (gearCfg.maxSpeed * 2.6)) * 0.28);
+  const targetSteerAngle = p.smoothSteer * 0.44 * speedSteerDamp;
+  p.steerAngle += (targetSteerAngle - p.steerAngle) * 0.25;
+  const rcsTurnRate = p.steerAngle * 0.080;
 
-  // Rev Limiter check
-  if (vForward >= gearCfg.maxSpeed) {
-    p.revLimiting = true;
-    vForward = gearCfg.maxSpeed;
-  } else {
-    p.revLimiting = false;
-  }
-
-  // 5. Steering & Car Turning Dynamics
-  // Steer angle smoothly targets input (-0.45 to +0.45 rad, ~26 degrees)
-  const targetSteer = p.steering * 0.45;
-  p.steerAngle += (targetSteer - p.steerAngle) * 0.25;
-
-  // Turning rate is speed-dependent (cars turn while rolling, reversing reverses turning)
-  const speedFactor = Math.min(1.0, Math.abs(vForward) / 2.5);
-  const turnDirection = vForward >= 0 ? 1 : -1;
-  const baseTurnSpeed = p.steerAngle * 0.075 * speedFactor * turnDirection;
-
-  // 6. Inertia, Unbalanced State & Angular Velocity
   const isUnbalanced = p.unbalancedTimer > 0;
   if (isUnbalanced) {
     p.unbalancedTimer--;
-    // High spin rate during loss of balance!
+    // Zero-g rotational inertia from impacts takes longer to damp down
     p.angle += p.angularVel;
-    p.angularVel *= 0.93; // Angular friction gradually restores control
+    p.angularVel *= 0.95;
   } else {
-    p.angle += baseTurnSpeed + p.angularVel;
-    p.angularVel *= 0.82; // Fast damping when tires have grip
+    p.angle += rcsTurnRate + p.angularVel;
+    p.angularVel *= 0.88;
   }
 
-  // Body roll / suspension wobble oscillation
-  p.wobbleAngle += p.wobbleVel;
-  p.wobbleVel -= p.wobbleAngle * 0.22; // Spring return
-  p.wobbleVel *= 0.84; // Damping
+  // Cold-gas RCS thruster puffs during attitude maneuvers
+  if (Math.abs(p.steering) > 0.25 && Math.random() < 0.25) {
+    const sideSign = p.steering > 0 ? 1 : -1;
+    particles.push({
+      x: p.pos.x + forwardX * (p.radius * 0.7) - rightX * (sideSign * 14),
+      y: p.pos.y + forwardY * (p.radius * 0.7) - rightY * (sideSign * 14),
+      vx: rightX * sideSign * 2.2 + (Math.random() - 0.5),
+      vy: rightY * sideSign * 2.2 + (Math.random() - 0.5),
+      life: 0.28,
+      color: '#e2e8f0',
+      size: Math.random() * 2 + 1,
+      type: 'smoke',
+    });
+  }
 
-  // 7. Lateral Tire Grip vs. Drifting / Skidding
-  // During normal driving, tires grip strongly (vLateral quickly dampened).
-  // When braking, turning hard at speed, or unbalanced, grip is broken (car slides!).
-  const lateralGrip = isUnbalanced ? 0.45 : p.braking ? 0.65 : 0.88;
-  vLateral *= lateralGrip;
-  if (Math.abs(vLateral) < 0.04) vLateral = 0;
+  // 5. Acceleration, Zero-Gravity Float, and Inertial Braking
+  const isThrottling = Math.abs(p.throttle) > 0.05 && !p.braking;
+  const wasThrottling = p.lastThrottling ?? false;
 
-  // Detect tire skidding
-  p.skidding = Math.abs(vLateral) > 0.8 || (p.braking && currentSpeed > 1.8) || isUnbalanced;
+  // Immediate inertia step-down on throttle release:
+  // Momentum immediately drops below the active throttle speed upon release
+  if (wasThrottling && !isThrottling && !p.braking) {
+    p.vel.x *= 0.80;
+    p.vel.y *= 0.80;
+  }
+  p.lastThrottling = isThrottling;
 
-  // 8. Reconstruct world velocity vector from forward & lateral components
+  if (p.braking) {
+    // BRAKING IN ZERO GRAVITY:
+    // 1) Cuts throttle completely
+    p.throttle = 0;
+
+    // 2) The inertia of zero gravity continues carrying the vehicle forward
+    // while retro-thrusters apply decelerating counter-force opposing the current velocity vector!
+    if (currentSpeed > 0.04) {
+      const retroDecel = 0.15; // Smooth counter-acceleration against zero-g momentum
+      const newSpeed = Math.max(0, currentSpeed - retroDecel);
+      const speedScale = newSpeed / currentSpeed;
+      p.vel.x *= speedScale;
+      p.vel.y *= speedScale;
+
+      // Recompute decomposed velocities after retro-thrust
+      vForward = p.vel.x * forwardX + p.vel.y * forwardY;
+      vLateral = p.vel.x * rightX + p.vel.y * rightY;
+
+      // Forward retro-thruster counter-burst plasma sparks opposing forward glide
+      if (currentSpeed > 1.2 && Math.random() < 0.4) {
+        const normVx = p.vel.x / currentSpeed;
+        const normVy = p.vel.y / currentSpeed;
+        particles.push({
+          x: p.pos.x + normVx * (p.radius * 0.75) + (Math.random() - 0.5) * 8,
+          y: p.pos.y + normVy * (p.radius * 0.75) + (Math.random() - 0.5) * 8,
+          vx: normVx * 3.0 + (Math.random() - 0.5) * 2,
+          vy: normVy * 3.0 + (Math.random() - 0.5) * 2,
+          life: 0.35,
+          color: p.id === 1 ? '#38bdf8' : '#fb923c',
+          size: Math.random() * 2.5 + 1.2,
+          type: 'spark',
+        });
+      }
+    }
+  } else if (isThrottling) {
+    // MAIN PROPULSION (Spaceship Thrusters):
+    // Smooth asymptotic speed limit approach prevents jerky velocity oscillations
+    const speedRatio = currentSpeed / gearCfg.maxSpeed;
+    if (speedRatio >= 1.0) {
+      p.revLimiting = true;
+      const decay = Math.pow(gearCfg.maxSpeed / currentSpeed, 0.15);
+      p.vel.x *= decay;
+      p.vel.y *= decay;
+    } else {
+      p.revLimiting = false;
+      const thrustScale = speedRatio > 0.85 ? Math.max(0.20, 1.0 - (speedRatio - 0.85) / 0.15 * 0.7) : 1.0;
+      if (p.throttle > 0) {
+        // Forward thruster burn
+        const thrust = p.throttle * effectiveAccel * thrustScale;
+        p.vel.x += forwardX * thrust;
+        p.vel.y += forwardY * thrust;
+      } else if (p.gear === 1) {
+        // Reverse thruster burn
+        const revThrust = p.throttle * (effectiveAccel * 0.65);
+        p.vel.x += forwardX * revThrust;
+        p.vel.y += forwardY * revThrust;
+      }
+    }
+
+    // Recompute forward and lateral components after thrust
+    vForward = p.vel.x * forwardX + p.vel.y * forwardY;
+    vLateral = p.vel.x * rightX + p.vel.y * rightY;
+  } else {
+    // THROTTLE RELEASED - COASTING INERTIA MODE:
+    // Inertia speed is reduced from the active throttle speed, and diminishes steadily with time
+    const coastSpeed = Math.hypot(p.vel.x, p.vel.y);
+    if (coastSpeed > 0.02) {
+      const decayFactor = 0.982;
+      const newCoastSpeed = Math.max(0, coastSpeed * decayFactor - 0.005);
+      const ratio = newCoastSpeed / coastSpeed;
+      p.vel.x *= ratio;
+      p.vel.y *= ratio;
+    } else {
+      p.vel.x = 0;
+      p.vel.y = 0;
+    }
+    p.revLimiting = false;
+
+    vForward = p.vel.x * forwardX + p.vel.y * forwardY;
+    vLateral = p.vel.x * rightX + p.vel.y * rightY;
+  }
+
+  // 6. Zero-G Inertial Drifting & Flight Assist Stabilization
+  const lateralFlightAssist = isUnbalanced ? 0.99 : p.braking ? 0.97 : 0.965;
+  vLateral *= lateralFlightAssist;
+  if (Math.abs(vLateral) < 0.005) vLateral = 0;
+
+  // Reconstruct world velocity from heading and stabilized drift
   p.vel.x = vForward * forwardX + vLateral * rightX;
   p.vel.y = vForward * forwardY + vLateral * rightY;
 
-  // 9. Update position
+  // Frame-synced smooth riding levitation phase (eliminates Date.now() clock stutter)
+  if (p.hoverPhase === undefined) p.hoverPhase = p.id * 1.5;
+  p.hoverPhase = (p.hoverPhase + 0.045) % (Math.PI * 2);
+
+  // Dynamic Riding Suspension: Pitch (acceleration squat / braking dive)
+  if (p.bodyPitch === undefined) p.bodyPitch = 0;
+  const targetPitch = p.braking ? -1.8 : (p.throttle > 0 ? 2.0 * Math.min(1.0, currentSpeed / 3.5) : 0);
+  p.bodyPitch += (targetPitch - p.bodyPitch) * 0.15;
+
+  // Dynamic Riding Suspension: Roll (centrifugal body roll lean into turns)
+  if (p.bodyRoll === undefined) p.bodyRoll = 0;
+  const targetRoll = (vLateral * 0.024) + (p.steerAngle * 0.045 * Math.min(1.5, currentSpeed / 3.0));
+  p.bodyRoll += (targetRoll - p.bodyRoll) * 0.16;
+
+  // Zero-G Levitation / Hover Wobble Oscillation in Rest Mode
+  if (currentSpeed < 1.5 && !p.braking) {
+    p.wobbleAngle = Math.sin(p.hoverPhase) * 0.038;
+  } else {
+    p.wobbleAngle += p.wobbleVel;
+    p.wobbleVel -= p.wobbleAngle * 0.20;
+    p.wobbleVel *= 0.86;
+  }
+
+  // Detect zero-g drift / skidding state
+  p.skidding = Math.abs(vLateral) > 1.0 || (p.braking && currentSpeed > 1.8) || isUnbalanced;
+
+  // 7. Update Position
   p.pos.x += p.vel.x;
   p.pos.y += p.vel.y;
 
-  // 10. Tire Skid Marks Generation
+  // 8. Dual Exhaust Jet Smoke Trace Generation
+  // Smoke is ONLY generated when active forward throttle is applied; no throttle = zero smoke.
+  // Calibrated so smoke vanishes completely within 2-3 cm (~75-95 px) behind the rear exhaust.
+  const exhaustDistX = -20;
+  const exhaustDistY = 8;
+  const curExhaustLeft: Vector = {
+    x: p.pos.x + forwardX * exhaustDistX - rightX * exhaustDistY,
+    y: p.pos.y + forwardY * exhaustDistX - rightY * exhaustDistY,
+  };
+  const curExhaustRight: Vector = {
+    x: p.pos.x + forwardX * exhaustDistX + rightX * exhaustDistY,
+    y: p.pos.y + forwardY * exhaustDistX + rightY * exhaustDistY,
+  };
+
+  const isForwardThrottling = p.throttle > 0.05 && !p.braking;
+
+  if (isForwardThrottling) {
+    // Determine number of interpolated steps between frames to keep the dual trace solid
+    let steps = 1;
+    if (p.lastExhaustLeft) {
+      const stepDist = Math.hypot(curExhaustLeft.x - p.lastExhaustLeft.x, curExhaustLeft.y - p.lastExhaustLeft.y);
+      if (stepDist < 60 && stepDist > 5) {
+        steps = Math.min(3, Math.ceil(stepDist / 4.5));
+      }
+    }
+
+    // Precise 2-3 cm trail length calibration:
+    // Screen 2-3 cm = ~75 to 95 pixels behind the rear exhaust
+    const targetTrailDist = 82 + Math.random() * 12; // ~82-94 pixels (~2.2 - 2.5 cm)
+    const travelRate = Math.max(2.0, currentSpeed + 0.9);
+    // Lifetime in frames: vanishes exactly within 2-3 cm distance regardless of gear speed
+    const maxLife = Math.max(9, Math.min(22, Math.round(targetTrailDist / travelRate)));
+
+    const ejectSpeed = 0.8 + currentSpeed * 0.12 + (p.throttle * 1.0);
+    // Dense, rich charcoal grey base opacity right at the car rear
+    const baseAlpha = 0.88;
+
+    for (let s = 1; s <= steps; s++) {
+      const t = s / steps;
+      const posLeftX = p.lastExhaustLeft ? p.lastExhaustLeft.x + (curExhaustLeft.x - p.lastExhaustLeft.x) * t : curExhaustLeft.x;
+      const posLeftY = p.lastExhaustLeft ? p.lastExhaustLeft.y + (curExhaustLeft.y - p.lastExhaustLeft.y) * t : curExhaustLeft.y;
+      const posRightX = p.lastExhaustRight ? p.lastExhaustRight.x + (curExhaustRight.x - p.lastExhaustRight.x) * t : curExhaustRight.x;
+      const posRightY = p.lastExhaustRight ? p.lastExhaustRight.y + (curExhaustRight.y - p.lastExhaustRight.y) * t : curExhaustRight.y;
+
+      // Left exhaust puff
+      jetSmoke.push({
+        x: posLeftX + (Math.random() - 0.5) * 1.2,
+        y: posLeftY + (Math.random() - 0.5) * 1.2,
+        vx: -forwardX * ejectSpeed + (Math.random() - 0.5) * 0.5 + p.vel.x * 0.08,
+        vy: -forwardY * ejectSpeed + (Math.random() - 0.5) * 0.5 + p.vel.y * 0.08,
+        age: 0,
+        maxLife: maxLife,
+        initialRadius: 4.0 + Math.random() * 1.0,
+        targetRadius: 18 + Math.random() * 6,
+        carId: p.id,
+        nozzle: 0,
+        baseAlpha: baseAlpha,
+        seed: Math.random() * 100,
+        rotation: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 0.035,
+      });
+
+      // Right exhaust puff
+      jetSmoke.push({
+        x: posRightX + (Math.random() - 0.5) * 1.2,
+        y: posRightY + (Math.random() - 0.5) * 1.2,
+        vx: -forwardX * ejectSpeed + (Math.random() - 0.5) * 0.5 + p.vel.x * 0.08,
+        vy: -forwardY * ejectSpeed + (Math.random() - 0.5) * 0.5 + p.vel.y * 0.08,
+        age: 0,
+        maxLife: maxLife,
+        initialRadius: 4.0 + Math.random() * 1.0,
+        targetRadius: 18 + Math.random() * 6,
+        carId: p.id,
+        nozzle: 1,
+        baseAlpha: baseAlpha,
+        seed: Math.random() * 100,
+        rotation: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 0.035,
+      });
+    }
+
+    p.lastExhaustLeft = curExhaustLeft;
+    p.lastExhaustRight = curExhaustRight;
+  } else {
+    // When throttle is released, reset last exhaust points so reconnection doesn't stretch across gaps
+    p.lastExhaustLeft = undefined;
+    p.lastExhaustRight = undefined;
+  }
+
+  // 9. Tire Skid Marks Generation in Soft Grey
   const rearTireDistX = -15;
   const rearTireDistY = 21;
   const curTireLeft: Vector = {
@@ -185,17 +350,16 @@ export function updateCarDriving(
 
   if (p.skidding && currentSpeed > 1.2) {
     if (p.lastTireLeft && p.lastTireRight) {
-      // Guard against any discontinuity across coordinates
       const stepDist = Math.hypot(curTireLeft.x - p.lastTireLeft.x, curTireLeft.y - p.lastTireLeft.y);
       if (stepDist < 60) {
-        const markAlpha = Math.min(0.65, (Math.abs(vLateral) + (p.braking ? 1 : 0)) * 0.35);
+        const markAlpha = Math.min(0.55, (Math.abs(vLateral) + (p.braking ? 0.8 : 0)) * 0.30);
         skidMarks.push({
           x1: p.lastTireLeft.x,
           y1: p.lastTireLeft.y,
           x2: curTireLeft.x,
           y2: curTireLeft.y,
           alpha: markAlpha,
-          width: 6,
+          width: 5,
         });
         skidMarks.push({
           x1: p.lastTireRight.x,
@@ -203,22 +367,22 @@ export function updateCarDriving(
           x2: curTireRight.x,
           y2: curTireRight.y,
           alpha: markAlpha,
-          width: 6,
+          width: 5,
         });
       }
     }
 
-    // Tire smoke particles
+    // Grey smoke drift particles during hard zero-g skids
     if (Math.random() < 0.45) {
       particles.push({
         x: curTireLeft.x + (Math.random() - 0.5) * 4,
         y: curTireLeft.y + (Math.random() - 0.5) * 4,
-        vx: -p.vel.x * 0.2 + (Math.random() - 0.5) * 1.5,
-        vy: -p.vel.y * 0.2 + (Math.random() - 0.5) * 1.5,
-        life: 0.5,
-        color: '#cbd5e1',
-        size: Math.random() * 4 + 3,
-        type: 'tireSmoke',
+        vx: -p.vel.x * 0.15 + (Math.random() - 0.5) * 1.5,
+        vy: -p.vel.y * 0.15 + (Math.random() - 0.5) * 1.5,
+        life: 0.6,
+        color: '#94a3b8',
+        size: Math.random() * 4.0 + 3.0,
+        type: 'smoke',
       });
     }
   }
@@ -226,7 +390,7 @@ export function updateCarDriving(
   p.lastTireLeft = curTireLeft;
   p.lastTireRight = curTireRight;
 
-  // 11. Engine RPM Calculation
+  // 10. Reactor Engine / RPM Calculation
   if (p.stalled && currentSpeed < 1.0) {
     p.rpm = 650;
   } else {
@@ -351,10 +515,11 @@ export function handleCarToCarCollision(
       const effectiveImpactSpeed = Math.max(0.8, Math.abs(impactSpeed));
 
       // Damage is directly proportional to speed and acceleration!
-      // Damage sustained by P1 is driven by impact speed + P2's ramming acceleration
-      const d1 = Math.round((effectiveImpactSpeed * 4.4 + a2IntoCrash * 140.0) * 10) / 10;
-      // Damage sustained by P2 is driven by impact speed + P1's ramming acceleration
-      const d2 = Math.round((effectiveImpactSpeed * 4.4 + a1IntoCrash * 140.0) * 10) / 10;
+      // Calibrated for higher traveling speeds: impacts deal between 4 to 38 damage
+      const rawD1 = effectiveImpactSpeed * 1.8 + a2IntoCrash * 45.0;
+      const rawD2 = effectiveImpactSpeed * 1.8 + a1IntoCrash * 45.0;
+      const d1 = Math.min(38, Math.max(4, Math.round(rawD1 * 10) / 10));
+      const d2 = Math.min(38, Math.max(4, Math.round(rawD2 * 10) / 10));
 
       p1.health = Math.max(0, p1.health - d1);
       p2.health = Math.max(0, p2.health - d2);
@@ -492,25 +657,25 @@ export function handleCarToCarCollision(
 
       // Off-center rotational impulse (Torque = r x F)
       // Car 1 heading relative to normal
-      const torque1 = (fwd1X * ny - fwd1Y * nx) * effectiveImpactSpeed * 0.18 + relTanSpeed * 0.12;
+      const torque1 = (fwd1X * ny - fwd1Y * nx) * effectiveImpactSpeed * 0.08 + relTanSpeed * 0.06;
 
       // Car 2 heading relative to normal
-      const torque2 = (-fwd2X * ny + fwd2Y * nx) * effectiveImpactSpeed * 0.18 - relTanSpeed * 0.12;
+      const torque2 = (-fwd2X * ny + fwd2Y * nx) * effectiveImpactSpeed * 0.08 - relTanSpeed * 0.06;
 
       p1.angularVel += torque1;
       p2.angularVel += torque2;
 
       // (c) Loss of Balance State Initiation
-      // High speed crashes cause longer loss of balance / spin-out
-      const balanceLossDuration = Math.min(90, Math.round(effectiveImpactSpeed * 12 + 20));
+      // High speed crashes cause loss of balance / spin-out
+      const balanceLossDuration = Math.min(70, Math.round(effectiveImpactSpeed * 3.2 + 15));
       p1.unbalancedTimer = balanceLossDuration;
       p2.unbalancedTimer = balanceLossDuration;
 
       // Chassis wobble roll
-      p1.wobbleVel = (Math.random() - 0.5) * effectiveImpactSpeed * 0.5;
-      p2.wobbleVel = (Math.random() - 0.5) * effectiveImpactSpeed * 0.5;
+      p1.wobbleVel = (Math.random() - 0.5) * effectiveImpactSpeed * 0.35;
+      p2.wobbleVel = (Math.random() - 0.5) * effectiveImpactSpeed * 0.35;
 
-      addScreenShake(Math.min(22, effectiveImpactSpeed * 3.5));
+      addScreenShake(Math.min(22, effectiveImpactSpeed * 1.5));
     }
 
     // Set touching flag to true so continuous contact does NOT drain extra health

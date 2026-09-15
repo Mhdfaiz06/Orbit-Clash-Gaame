@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="blueBeam" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="redBeam" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f87171" />
+      <stop offset="100%" stop-color="#dc2626" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Background Disc -->
+  <rect width="128" height="128" rx="28" fill="url(#bgGrad)" stroke="#334155" stroke-width="2" />
+  
+  <!-- Orbiting boundary rings -->
+  <circle cx="64" cy="64" r="46" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-dasharray="6,5" opacity="0.6" />
+  <circle cx="64" cy="64" r="54" fill="none" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="8,6" opacity="0.4" />
+
+  <!-- Player 1 Car (Blue) -->
+  <g transform="translate(42, 64) rotate(-35)">
+    <rect x="-14" y="-9" width="28" height="18" rx="7" fill="url(#blueBeam)" filter="url(#glow)" />
+    <circle cx="2" cy="0" r="5" fill="#e0f2fe" />
+    <rect x="-16" y="-12" width="6" height="4" rx="1.5" fill="#0f172a" />
+    <rect x="10" y="-12" width="6" height="4" rx="1.5" fill="#0f172a" />
+    <rect x="-16" y="8" width="6" height="4" rx="1.5" fill="#0f172a" />
+    <rect x="10" y="8" width="6" height="4" rx="1.5" fill="#0f172a" />
+  </g>
+
+  <!-- Player 2 Car (Red) -->
+  <g transform="translate(86, 64) rotate(145)">
+    <rect x="-14" y="-9" width="28" height="18" rx="7" fill="url(#redBeam)" filter="url(#glow)" />
+    <circle cx="2" cy="0" r="5" fill="#ffe4e6" />
+    <rect x="-16" y="-12" width="6" height="4" rx="1.5" fill="#0f172a" />
+    <rect x="10" y="-12" width="6" height="4" rx="1.5" fill="#0f172a" />
+    <rect x="-16" y="8" width="6" height="4" rx="1.5" fill="#0f172a" />
+    <rect x="10" y="8" width="6" height="4" rx="1.5" fill="#0f172a" />
+  </g>
+
+  <!-- Collision Spark -->
+  <polygon points="64,52 67,61 76,64 67,67 64,76 61,67 52,64 61,61" fill="#facc15" filter="url(#glow)" />
+</svg>

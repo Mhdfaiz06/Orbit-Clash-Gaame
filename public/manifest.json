@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Orbit Clash",
+  "version": "1.0",
+  "description": "An experimental game built with Google AI Studio",
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "Play Orbit Clash"
+  },
+  "icons": {
+    "16": "vite.svg",
+    "48": "vite.svg",
+    "128": "vite.svg"
+  }
+}

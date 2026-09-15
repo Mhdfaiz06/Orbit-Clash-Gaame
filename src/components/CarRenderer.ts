@@ -1,4 +1,4 @@
-import { Player, DamagePopup, SkidMark } from '../types';
+import { Player, DamagePopup, SkidMark, JetSmokePuff } from '../types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, DISPLAY_SPEED_MULTIPLIER } from '../carPhysics';
 
 /**
@@ -15,11 +15,18 @@ function renderCarAt(
   const healthPercent = Math.max(0, p.health) / 100;
   const isP1 = p.id === 1;
 
-  ctx.save();
-  ctx.translate(posX, posY);
+  // Dynamic zero-g hovering levitation with frame-synced smoothness
+  const hoverPhase = p.hoverPhase ?? (p.id * 1.5);
+  const floatBob = Math.sin(hoverPhase) * (speed < 1.0 ? 2.6 : 1.3);
+  const bodyPitch = p.bodyPitch ?? 0;
+  const bodyRoll = p.bodyRoll ?? 0;
 
-  // Apply heading angle plus dynamic chassis wobble/tilt from loss of balance
-  const totalAngle = p.angle + p.wobbleAngle;
+  ctx.save();
+  // Frame translation with smooth float and pitch squat/dive
+  ctx.translate(posX - bodyPitch * 0.65, posY + floatBob);
+
+  // Apply heading angle plus dynamic chassis roll camber and wobble
+  const totalAngle = p.angle + p.wobbleAngle + bodyRoll;
   ctx.rotate(totalAngle);
 
   // 1. Headlights Beam Projections onto Arena Surface
@@ -47,13 +54,14 @@ function renderCarAt(
   });
   ctx.restore();
 
-  // 2. Underglow & Ground Shadow
+  // 2. Zero-G Hovering Underglow & Ground Shadow
   ctx.save();
   ctx.shadowColor = p.color;
-  ctx.shadowBlur = p.unbalancedTimer > 0 ? 25 : 16;
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.shadowBlur = p.unbalancedTimer > 0 ? 25 : 18;
+  const shadowScale = 1.0 - (floatBob / 30);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
   ctx.beginPath();
-  ctx.ellipse(0, 2, p.radius * 1.05, p.radius * 0.88, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 4 - floatBob * 0.5, (p.radius * 1.05) * shadowScale, (p.radius * 0.88) * shadowScale, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
@@ -120,8 +128,8 @@ function renderCarAt(
     ctx.restore();
   });
 
-  // 4. Exhaust Jets & Combustion Flames (At twin rear manifolds)
-  if (speed > 0.4 && p.throttle > 0.1) {
+  // 4a. Exhaust Jets & Main Combustion Flames (At twin rear manifolds)
+  if (speed > 0.3 && p.throttle > 0.05 && !p.braking) {
     const flameRatio = Math.min(1.2, speed / maxTopSpeed);
     const flameLen = flameRatio * 28 + (Math.random() * 8);
 
@@ -142,6 +150,46 @@ function renderCarAt(
       ctx.fill();
       ctx.restore();
     });
+  }
+
+  // 4b. Forward Retro-Thruster Plasma Plumes (Fighting zero-gravity inertia during braking)
+  if (p.braking && speed > 0.2) {
+    const retroRatio = Math.min(1.0, speed / 5.0);
+    const retroLen = retroRatio * 20 + (Math.random() * 6);
+
+    [-12, 12].forEach(retroY => {
+      ctx.save();
+      const retroGrad = ctx.createLinearGradient(
+        frontTireDistX + 2,
+        retroY,
+        frontTireDistX + 2 + retroLen,
+        retroY + (retroY > 0 ? 4 : -4)
+      );
+      retroGrad.addColorStop(0, '#ffffff');
+      retroGrad.addColorStop(0.3, isP1 ? '#38bdf8' : '#fb923c');
+      retroGrad.addColorStop(0.7, isP1 ? '#0284c7' : '#ef4444');
+      retroGrad.addColorStop(1, 'transparent');
+
+      ctx.fillStyle = retroGrad;
+      ctx.beginPath();
+      ctx.moveTo(frontTireDistX + 2, retroY - 2.5);
+      ctx.lineTo(frontTireDistX + 2 + retroLen, retroY + (retroY > 0 ? 5 : -5));
+      ctx.lineTo(frontTireDistX + 2, retroY + 2.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  // 4c. RCS Attitude Thruster Plumes on Nose
+  if (Math.abs(p.steering) > 0.2) {
+    const rcsSide = p.steering > 0 ? -1 : 1;
+    ctx.save();
+    ctx.fillStyle = isP1 ? 'rgba(56, 189, 248, 0.75)' : 'rgba(251, 146, 60, 0.75)';
+    ctx.beginPath();
+    ctx.arc(p.radius - 2, rcsSide * 16, 3.5 + Math.random() * 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   // 5. Main Ball-Car Body Chassis
@@ -377,13 +425,109 @@ export function drawDamagePopups(ctx: CanvasRenderingContext2D, popups: DamagePo
 }
 
 /**
- * Draws tire skid marks left on the arena asphalt with seamless edge wrapping
+ * Draws grey jet smoke traces from dual exhausts, expanding into cloudier, softer plumes
+ * the further back they are traced, smoothly spreading and vanishing into the atmosphere.
+ */
+export function drawJetSmoke(ctx: CanvasRenderingContext2D, smokePuffs: JetSmokePuff[]) {
+  if (smokePuffs.length === 0) return;
+
+  ctx.save();
+
+  // Draw each smoke puff with volumetric cloud expansion
+  for (let i = 0; i < smokePuffs.length; i++) {
+    const puff = smokePuffs[i];
+    const progress = Math.min(1.0, puff.age / puff.maxLife); // 0.0 (car rear) -> 1.0 (tail)
+
+    // Radius expands as smoke billows back across the short 2-3 cm distance
+    const expansionCurve = Math.pow(progress, 0.70);
+    const radius = puff.initialRadius + expansionCurve * (puff.targetRadius - puff.initialRadius);
+
+    // Opacity: deep dense grey at the car rear, progressively transparent towards the 2-3 cm tail
+    const tailTransparency = Math.pow(1 - progress, 1.55);
+    const alpha = Math.max(0, puff.baseAlpha * tailTransparency);
+    if (alpha <= 0.015) continue;
+
+    // Helper to draw single volumetric cloud puff with atmospheric feathering
+    const drawPuffAt = (cx: number, cy: number) => {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(puff.rotation);
+
+      if (progress < 0.25) {
+        // Deep, rich charcoal-slate grey right at the car rear nozzles
+        const grad = ctx.createRadialGradient(0, 0, 1, 0, 0, radius);
+        grad.addColorStop(0, `rgba(38, 48, 64, ${alpha})`);
+        grad.addColorStop(0.40, `rgba(64, 78, 98, ${alpha * 0.92})`);
+        grad.addColorStop(0.75, `rgba(95, 110, 132, ${alpha * 0.55})`);
+        grad.addColorStop(1, 'rgba(95, 110, 132, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Towards the 2-3 cm tail: cloudier, spreading, increasingly transparent atmospheric mist
+        const mainGrad = ctx.createRadialGradient(0, 0, radius * 0.15, 0, 0, radius);
+        mainGrad.addColorStop(0, `rgba(90, 105, 128, ${alpha * 0.85})`);
+        mainGrad.addColorStop(0.45, `rgba(135, 150, 172, ${alpha * 0.50})`);
+        mainGrad.addColorStop(0.80, `rgba(190, 202, 218, ${alpha * 0.20})`);
+        mainGrad.addColorStop(1, 'rgba(135, 150, 172, 0)');
+
+        ctx.fillStyle = mainGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 3 puffy cloud lobes offset around the center to create billowy cumulus contours
+        const lobeOffset = radius * 0.35;
+        const lobeRadius = radius * 0.65;
+        for (let k = 0; k < 3; k++) {
+          const angle = (k * Math.PI * 2) / 3 + puff.seed;
+          const lx = Math.cos(angle) * lobeOffset;
+          const ly = Math.sin(angle) * lobeOffset;
+
+          const lobeGrad = ctx.createRadialGradient(lx, ly, lobeRadius * 0.1, lx, ly, lobeRadius);
+          lobeGrad.addColorStop(0, `rgba(105, 120, 142, ${alpha * 0.70})`);
+          lobeGrad.addColorStop(0.50, `rgba(140, 155, 178, ${alpha * 0.32})`);
+          lobeGrad.addColorStop(1, 'rgba(140, 155, 178, 0)');
+
+          ctx.fillStyle = lobeGrad;
+          ctx.beginPath();
+          ctx.arc(lx, ly, lobeRadius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.restore();
+    };
+
+    // Draw primary puff
+    drawPuffAt(puff.x, puff.y);
+
+    // Toroidal edge wrapping clones so expanding clouds don't get clipped near borders
+    const nearLeft = puff.x < radius + 10;
+    const nearRight = puff.x > CANVAS_WIDTH - (radius + 10);
+    const nearTop = puff.y < radius + 10;
+    const nearBottom = puff.y > CANVAS_HEIGHT - (radius + 10);
+
+    if (nearLeft) drawPuffAt(puff.x + CANVAS_WIDTH, puff.y);
+    if (nearRight) drawPuffAt(puff.x - CANVAS_WIDTH, puff.y);
+    if (nearTop) drawPuffAt(puff.x, puff.y + CANVAS_HEIGHT);
+    if (nearBottom) drawPuffAt(puff.x, puff.y - CANVAS_HEIGHT);
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Draws tire skid marks left on the arena surface in matching atmospheric grey
  */
 export function drawSkidMarks(ctx: CanvasRenderingContext2D, marks: SkidMark[]) {
   ctx.save();
   ctx.lineCap = 'round';
   marks.forEach(m => {
-    ctx.strokeStyle = `rgba(15, 23, 42, ${m.alpha * 0.75})`;
+    ctx.strokeStyle = `rgba(148, 163, 184, ${m.alpha * 0.45})`;
+    ctx.shadowColor = 'rgba(148, 163, 184, 0.30)';
+    ctx.shadowBlur = 4;
     ctx.lineWidth = m.width;
     ctx.beginPath();
     ctx.moveTo(m.x1, m.y1);

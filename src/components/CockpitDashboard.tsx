@@ -88,8 +88,8 @@ export const CockpitDashboard: React.FC<CockpitDashboardProps> = ({
             <AlertTriangle size={11} /> SPIN-OUT
           </span>
         ) : isBraking ? (
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse">
-            BRAKING
+          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse flex items-center gap-1">
+            <Zap size={11} /> RETRO BRAKE
           </span>
         ) : isStalled ? (
           <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 animate-bounce">
@@ -100,8 +100,8 @@ export const CockpitDashboard: React.FC<CockpitDashboardProps> = ({
             SHIFT UP ⬆
           </span>
         ) : (
-          <span className="text-[10px] font-mono text-white/40 uppercase">
-            GEAR {gear} / 4
+          <span className="text-[10px] font-mono text-cyan-300/80 uppercase">
+            {speed < 1.0 ? 'ZERO-G HOVER' : 'ZERO-G FLOAT'} • G{gear}
           </span>
         )}
       </div>

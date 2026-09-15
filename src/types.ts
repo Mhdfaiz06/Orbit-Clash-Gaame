@@ -24,6 +24,23 @@ export interface SkidMark {
   width: number;
 }
 
+export interface JetSmokePuff {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  age: number;          // 0 up to maxLife
+  maxLife: number;      // total lifetime in frames (~120 frames)
+  initialRadius: number;// starting compact size (~4-6px)
+  targetRadius: number; // expanded billow size (~28-40px)
+  carId: number;        // 1 or 2
+  nozzle: 0 | 1;        // 0 = left dual exhaust, 1 = right dual exhaust
+  baseAlpha: number;    // initial emission opacity
+  seed: number;         // shape variance seed
+  rotation: number;     // tumbling angle
+  spin: number;         // spin rate
+}
+
 export interface DamagePopup {
   id: number;
   x: number;
@@ -83,19 +100,52 @@ export interface Player {
   wobbleVel: number;       // Angular velocity of body roll
   skidding: boolean;       // Tires losing traction / screeching
   
+  // Smooth Riding & Suspension Dynamics
+  hoverPhase?: number;     // Frame-synced smooth floating phase
+  smoothSteer?: number;    // Smoothed steering input for silky rotation
+  bodyPitch?: number;      // Dynamic acceleration squat & brake dive
+  bodyRoll?: number;       // Dynamic centrifugal chassis camber lean
+  lastThrottling?: boolean;// Tracks edge when throttle is released
+  
   // Discrete Single-Point-of-Impact Tracking
   touchingWall: WallContact;
   touchingCar: boolean;
   
-  // Tire position cache for skid marks (left and right tires)
+  // Tire & Dual Exhaust position cache
   lastTireLeft?: Vector;
   lastTireRight?: Vector;
+  lastExhaustLeft?: Vector;
+  lastExhaustRight?: Vector;
+}
+
+export interface AsteroidCrater {
+  x: number;
+  y: number;
+  r: number;
+  depth: number;
+}
+
+export interface Asteroid {
+  id: number;
+  pos: Vector;
+  vel: Vector;
+  radius: number;
+  sizeTier: number; // 1 to 5
+  mass: number;
+  angle: number;
+  spinSpeed: number;
+  shapeOffsets: number[]; // deterministic jagged silhouette offsets
+  craters: AsteroidCrater[];
+  mineralHue: number; // basalt vs slate vs metallic chondrite
+  touchingCars: Record<number, boolean>; // Single-point-of-contact per car ID
 }
 
 export interface GameState {
   players: Player[];
+  asteroids: Asteroid[];
   particles: Particle[];
   skidMarks: SkidMark[];
+  jetSmoke: JetSmokePuff[];
   damagePopups: DamagePopup[];
   stars: { x: number; y: number; size: number; opacity: number }[];
   status: 'start' | 'playing' | 'gameover';

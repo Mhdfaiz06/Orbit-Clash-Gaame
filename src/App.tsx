@@ -4,7 +4,7 @@ import { Rocket, Shield, Zap, RefreshCw, Play, Trophy, Gauge, AlertTriangle, Dis
 import { Joystick } from './components/Joystick';
 import { CockpitDashboard, TelemetryData } from './components/CockpitDashboard';
 import { Player, GameState, Vector } from './types';
-import { drawBallCar, drawDamagePopups, drawSkidMarks } from './components/CarRenderer';
+import { drawBallCar, drawDamagePopups, drawSkidMarks, drawJetSmoke } from './components/CarRenderer';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -16,6 +16,12 @@ import {
   handleArenaBoundaryWrap,
   handleCarToCarCollision,
 } from './carPhysics';
+import {
+  spawnAsteroids,
+  updateAsteroids,
+  handleCarAsteroidCollisions,
+  drawAsteroids,
+} from './asteroidPhysics';
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -106,8 +112,13 @@ export default function App() {
         touchingCar: false,
       },
     ],
+    asteroids: spawnAsteroids(7, [
+      { x: 250, y: CANVAS_HEIGHT / 2 },
+      { x: CANVAS_WIDTH - 250, y: CANVAS_HEIGHT / 2 },
+    ]),
     particles: [],
     skidMarks: [],
+    jetSmoke: [],
     damagePopups: [],
     stars: Array.from({ length: 140 }, () => ({
       x: Math.random() * CANVAS_WIDTH,
@@ -240,7 +251,7 @@ export default function App() {
   const update = () => {
     if (stateRef.current.status !== 'playing') return;
 
-    const { players, particles, skidMarks, damagePopups } = stateRef.current;
+    const { players, particles, skidMarks, jetSmoke, damagePopups } = stateRef.current;
     const p1 = players[0];
     const p2 = players[1];
 
@@ -257,16 +268,14 @@ export default function App() {
     if (keysPressed.current.has('KeyA') || keysPressed.current.has('a')) { p1KbdSteer -= 1; p1KbdActive = true; }
     if (keysPressed.current.has('KeyD') || keysPressed.current.has('d')) { p1KbdSteer += 1; p1KbdActive = true; }
 
-    if (p1KbdActive) {
-      p1.steering = p1KbdSteer;
-      p1.throttle = p1KbdThrottle;
-    } else if (joystickActive.current[0]) {
-      p1.steering = joystickP1.current.steer;
-      p1.throttle = joystickP1.current.throttle;
-    } else {
-      p1.steering = 0;
-      p1.throttle = 0;
-    }
+    const targetP1Steer = p1KbdActive ? p1KbdSteer : (joystickActive.current[0] ? joystickP1.current.steer : 0);
+    const targetP1Throttle = p1KbdActive ? p1KbdThrottle : (joystickActive.current[0] ? joystickP1.current.throttle : 0);
+
+    // Eased throttle & steering transitions for silky-smooth motion
+    p1.steering += (targetP1Steer - p1.steering) * 0.35;
+    p1.throttle += (targetP1Throttle - p1.throttle) * 0.35;
+    if (Math.abs(p1.steering) < 0.01) p1.steering = 0;
+    if (Math.abs(p1.throttle) < 0.01) p1.throttle = 0;
 
     // 3. Player 2 Car Driving Controls (Arrows / Numpad / Joystick 2 / Optional AI Bot)
     let p2KbdSteer = 0;
@@ -277,12 +286,15 @@ export default function App() {
     if (keysPressed.current.has('ArrowLeft') || keysPressed.current.has('arrowleft') || keysPressed.current.has('Numpad4') || keysPressed.current.has('KeyJ') || keysPressed.current.has('j')) { p2KbdSteer -= 1; p2KbdActive = true; }
     if (keysPressed.current.has('ArrowRight') || keysPressed.current.has('arrowright') || keysPressed.current.has('Numpad6') || keysPressed.current.has('KeyL') || keysPressed.current.has('l')) { p2KbdSteer += 1; p2KbdActive = true; }
 
+    let targetP2Steer = 0;
+    let targetP2Throttle = 0;
+
     if (p2KbdActive) {
-      p2.steering = p2KbdSteer;
-      p2.throttle = p2KbdThrottle;
+      targetP2Steer = p2KbdSteer;
+      targetP2Throttle = p2KbdThrottle;
     } else if (joystickActive.current[1]) {
-      p2.steering = joystickP2.current.steer;
-      p2.throttle = joystickP2.current.throttle;
+      targetP2Steer = joystickP2.current.steer;
+      targetP2Throttle = joystickP2.current.throttle;
     } else if (aiOpponent) {
       // Intelligent Combat Bot with Toroidal Shortest-Path Navigation
       let dx = p1.pos.x - p2.pos.x;
@@ -297,29 +309,31 @@ export default function App() {
       while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
       while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
-      p2.steering = Math.max(-1, Math.min(1, angleDiff * 2.5));
+      targetP2Steer = Math.max(-1, Math.min(1, angleDiff * 2.5));
 
       if (Math.abs(angleDiff) < 1.3) {
-        p2.throttle = 1;
+        targetP2Throttle = 1;
         const curSpd = Math.hypot(p2.vel.x, p2.vel.y);
         const gearCfg = GEAR_CONFIG[p2.gear - 1];
         if (curSpd > gearCfg.maxSpeed * 0.82 && p2.gear < 4) {
           shiftPlayerGear(2, p2.gear + 1);
         }
       } else {
-        p2.throttle = 0.6;
-        if (Math.hypot(p2.vel.x, p2.vel.y) > 3.2 && Math.abs(angleDiff) > 1.8) {
+        targetP2Throttle = 0.6;
+        if (Math.hypot(p2.vel.x, p2.vel.y) > 4.2 && Math.abs(angleDiff) > 1.8) {
           p2.braking = true; // Initiate power drift
         }
       }
-    } else {
-      p2.steering = 0;
-      p2.throttle = 0;
     }
 
+    p2.steering += (targetP2Steer - p2.steering) * 0.35;
+    p2.throttle += (targetP2Throttle - p2.throttle) * 0.35;
+    if (Math.abs(p2.steering) < 0.01) p2.steering = 0;
+    if (Math.abs(p2.throttle) < 0.01) p2.throttle = 0;
+
     // 4. Update Automotive Driving & Turning Physics for each vehicle
-    updateCarDriving(p1, particles, skidMarks);
-    updateCarDriving(p2, particles, skidMarks);
+    updateCarDriving(p1, particles, skidMarks, jetSmoke);
+    updateCarDriving(p2, particles, skidMarks, jetSmoke);
 
     // 5. Looping Boundary Wrap (Entering right wall appears from left, top wraps to bottom)
     handleArenaBoundaryWrap(p1, particles);
@@ -327,6 +341,18 @@ export default function App() {
 
     // 6. Car-to-Car Collision with SINGLE POINT OF IMPACT damage & loss of balance
     handleCarToCarCollision(p1, p2, particles, damagePopups, addScreenShake);
+
+    // 6b. Update Asteroids & Arena Border Bounces (Portal loops DO NOT work for asteroids)
+    updateAsteroids(stateRef.current.asteroids, particles);
+
+    // 6c. Car-to-Asteroid Single Point of Impact Collisions, Damage, & Momentum Exchange
+    handleCarAsteroidCollisions(
+      stateRef.current.players,
+      stateRef.current.asteroids,
+      particles,
+      damagePopups,
+      addScreenShake
+    );
 
     // 7. Update Particles with Toroidal Boundary Wrapping
     for (let i = particles.length - 1; i >= 0; i--) {
@@ -361,6 +387,31 @@ export default function App() {
       if (skidMarks[i].alpha <= 0) {
         skidMarks.splice(i, 1);
       }
+    }
+
+    // 9b. Update and Diffuse Dual Exhaust Jet Smoke Clouds
+    for (let i = jetSmoke.length - 1; i >= 0; i--) {
+      const puff = jetSmoke[i];
+      puff.x += puff.vx;
+      puff.y += puff.vy;
+      puff.vx *= 0.985; // ambient atmospheric deceleration
+      puff.vy *= 0.985;
+      puff.rotation += puff.spin;
+      puff.age++;
+
+      // Toroidal boundary wrapping for smoke puffs
+      if (puff.x >= CANVAS_WIDTH) puff.x -= CANVAS_WIDTH;
+      else if (puff.x < 0) puff.x += CANVAS_WIDTH;
+      if (puff.y >= CANVAS_HEIGHT) puff.y -= CANVAS_HEIGHT;
+      else if (puff.y < 0) puff.y += CANVAS_HEIGHT;
+
+      if (puff.age >= puff.maxLife) {
+        jetSmoke.splice(i, 1);
+      }
+    }
+
+    if (jetSmoke.length > 420) {
+      jetSmoke.splice(0, jetSmoke.length - 420);
     }
 
     // 10. Dampen Screen Shake
@@ -534,6 +585,12 @@ export default function App() {
     // 3. Draw Tire Skid Marks on the Asphalt
     drawSkidMarks(ctx, stateRef.current.skidMarks);
 
+    // 3b. Draw Dual Exhaust Grey Jet Smoke Traces (expanding and cloudier further back)
+    drawJetSmoke(ctx, stateRef.current.jetSmoke);
+
+    // 3c. Draw Floating Asteroids with Realistic 3D Texture & Surface Craters
+    drawAsteroids(ctx, stateRef.current.asteroids);
+
     // 4. Draw Particles (Sparks, Exhaust, Tire Smoke) with edge loop rendering
     stateRef.current.particles.forEach(p => {
       ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
@@ -640,7 +697,12 @@ export default function App() {
 
     stateRef.current.particles = [];
     stateRef.current.skidMarks = [];
+    stateRef.current.jetSmoke = [];
     stateRef.current.damagePopups = [];
+    stateRef.current.asteroids = spawnAsteroids(7, [
+      { x: 250, y: CANVAS_HEIGHT / 2 },
+      { x: CANVAS_WIDTH - 250, y: CANVAS_HEIGHT / 2 },
+    ]);
     stateRef.current.screenShake = 0;
     stateRef.current.status = 'playing';
     setGameState('playing');
