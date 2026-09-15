@@ -1,6 +1,6 @@
 {
   "name": "Orbital Clash",
-  "description": "A 2-player top-down spaceship combat simulator with zero-gravity float, Newtonian inertia, manual gear transmission, retro-thruster braking, and single-point impact damage.",
+  "description": "A 2-player spaceship combat simulator with 2 modes: Local 1v1 and Online Multiplayer with custom room codes, zero-gravity float, and single-point impact damage.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

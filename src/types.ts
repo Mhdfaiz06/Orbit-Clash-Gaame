@@ -152,3 +152,24 @@ export interface GameState {
   winner: number | null;
   screenShake: number;     // Screen shake intensity
 }
+
+export type GameMode = 'menu' | 'local_1v1' | 'online_lobby';
+export type OnlineRole = 'blue' | 'red' | null;
+
+export interface PlayerInput {
+  throttle: number; // -1 to 1
+  steer: number;    // -1 to 1
+  braking: boolean;
+  gear?: number;
+}
+
+export interface MultiplayerState {
+  connected: boolean;
+  roomId: string | null;
+  role: OnlineRole;
+  opponentJoined: boolean;
+  rematchRequestedByMe: boolean;
+  rematchRequestedByOpponent: boolean;
+  statusMessage: string;
+  ping: number;
+}
