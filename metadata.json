@@ -1,0 +1,6 @@
+{
+  "name": "Orbital Clash",
+  "description": "A 2-player top-down ball-car combat simulator with looping toroidal physics, manual transmission, single-point impact damage, and inertia-driven loss of balance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
